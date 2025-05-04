@@ -148,7 +148,7 @@ def parse_vtt_transcript(path):
 
     return entries
 
-def format_transcript(*, entries, coach_name=None, output_path=None):
+def format_transcript(entries, coach_name=None, output_path=None):
     from docx import Document
     from docx.shared import Inches, RGBColor, Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH
