@@ -148,7 +148,13 @@ def parse_vtt_transcript(path):
 
     return entries
 
-def format_transcript(entries, output_path):
+def format_transcript(*, entries, coach_name=None, output_path=None):
+    from docx import Document
+    from docx.shared import Inches, RGBColor, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.shared import qn, OxmlElement
+    import os
+
     doc = Document()
     section = doc.sections[0]
     section.top_margin = Inches(0.75)
@@ -156,77 +162,98 @@ def format_transcript(entries, output_path):
     section.left_margin = Inches(0.5)
     section.right_margin = Inches(0.5)
 
-    speakers = sorted({e[0] for e in entries})
-    print("\nWho is the Coach?")
-    for i, s in enumerate(speakers, start=1):
-        print(f"{i} - {s}")
-    try:
-        coach_index = int(input("Enter the number for the Coach: ")) - 1
-        coach = speakers[coach_index]
-    except (ValueError, IndexError):
-        coach = speakers[0]
-        print(f"Invalid input. Defaulting to: {coach}")
-
+    # Header with coach name
     header_para = section.header.paragraphs[0]
-    header_run = header_para.add_run(coach)
-    header_run.font.color.rgb = RGBColor(64, 64, 64)
-    header_run.font.size = Pt(14)
-    header_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if coach_name:
+        header_run = header_para.add_run(coach_name)
+        header_run.font.color.rgb = RGBColor(64, 64, 64)
+        header_run.font.size = Pt(14)
+        header_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
+    # Footer with page numbers
     footer_para = section.footer.paragraphs[0]
-    add_page_number_field(footer_para)
+    footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer_para.add_run("Page ")
+    run_page = footer_para.add_run()
+    fld_char1 = OxmlElement('w:fldChar')
+    fld_char1.set(qn('w:fldCharType'), 'begin')
+    instr_text = OxmlElement('w:instrText')
+    instr_text.text = "PAGE"
+    fld_char2 = OxmlElement('w:fldChar')
+    fld_char2.set(qn('w:fldCharType'), 'separate')
+    fld_text = OxmlElement('w:t')
+    fld_text.text = "1"
+    fld_char3 = OxmlElement('w:fldChar')
+    fld_char3.set(qn('w:fldCharType'), 'end')
+    run_page._r.extend([fld_char1, instr_text, fld_char2, fld_text, fld_char3])
+    footer_para.add_run(" of ")
+    run_total = footer_para.add_run()
+    fld_char1 = OxmlElement('w:fldChar')
+    fld_char1.set(qn('w:fldCharType'), 'begin')
+    instr_text = OxmlElement('w:instrText')
+    instr_text.text = "NUMPAGES"
+    fld_char2 = OxmlElement('w:fldChar')
+    fld_char2.set(qn('w:fldCharType'), 'separate')
+    fld_text = OxmlElement('w:t')
+    fld_text.text = "1"
+    fld_char3 = OxmlElement('w:fldCharType')
+    fld_char3.set(qn('w:fldCharType'), 'end')
+    run_total._r.extend([fld_char1, instr_text, fld_char2, fld_text, fld_char3])
 
     doc.add_heading("Coaching Session Transcript with Feedback", level=1).alignment = WD_ALIGN_PARAGRAPH.CENTER
 
+    # Add ICF legend
     legend_items = [
-        ("SD", "Evidence of competency demonstration. Demonstrating the skill at one point does not mean the skill was demonstrated throughout the session."),
-        ("LD", "Lack of evidence of demonstration or contra evidence of competency in the marked moment of the discussion."),
+        ("SD", "Evidence of competency demonstration..."),
+        ("LD", "Lack of evidence of demonstration..."),
         ("AMDOS", "Ask Me During Our Session"),
         ("SWMDOS", "Share With Me During Our Session"),
         ("CEQ", "Close Ended Question"),
         ("ECNN", "Expansive conversation not needed."),
-        ("CD", "Cognitive Distortion")
+        ("CD", "Cognitive Distortion"),
     ]
     for label, desc in legend_items:
         p = doc.add_paragraph()
-        p.paragraph_format.space_after = 0
         run = p.add_run(f"{label}: ")
         run.bold = True
         p.add_run(desc)
 
-    doc.add_paragraph("")
+    doc.add_paragraph("")  # space
     doc.add_paragraph("")
 
+    # Add table
     table = doc.add_table(rows=1, cols=2)
     table.style = 'Table Grid'
     table.rows[0].repeat_on_every_page = True
+
     hdr_cells = table.rows[0].cells
     hdr_cells[0].text = 'Coaching Transcript'
     hdr_cells[1].text = "Mentor's Feedback"
     for cell in hdr_cells:
-        for paragraph in cell.paragraphs:
-            for run in paragraph.runs:
-                run.bold = True
+        for run in cell.paragraphs[0].runs:
+            run.bold = True
 
     for i, (speaker, timestamp, text) in enumerate(entries, start=1):
-        row_cells = table.add_row().cells
-        para = row_cells[0].paragraphs[0]
-        para.add_run(f"{i} [")
-        t_run = para.add_run(timestamp)
-        t_run.font.color.rgb = RGBColor(105, 105, 105)
+        row = table.add_row().cells
+        para = row[0].paragraphs[0]
+        para.add_run(f"{i} [").bold = False
+        time_run = para.add_run(timestamp)
+        time_run.font.color.rgb = RGBColor(105, 105, 105)
         para.add_run("] ")
-        r = para.add_run(f"Coach {speaker}" if speaker == coach else f"Client {speaker}")
-        r.bold = True
+        label = "Coach" if speaker == coach_name else "Client"
+        bold = para.add_run(f"{label} {speaker}")
+        bold.bold = True
         para.add_run(f" {text}")
-        row_cells[1].text = ""
+        row[1].text = ""
 
     doc.add_paragraph("")
     doc.add_paragraph("Strengths:")
     doc.add_paragraph("")
     doc.add_paragraph("Progression Ideas:")
 
-    doc.save(output_path)
-    print(f"\nFormatted transcript saved as: {output_path}")
+    if output_path:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        doc.save(output_path)
 
 def main():
     file_path = input("Enter the path to the MS Teams .vtt or .docx transcript: ").strip()
